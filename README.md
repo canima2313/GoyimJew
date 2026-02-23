@@ -1,2 +1,2 @@
 # GoyimJew
-nathan jewish goyim
+mikel jewish goyim
