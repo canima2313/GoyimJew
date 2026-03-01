@@ -1,5 +1,5 @@
 # GoyimJew
-mikel jewish goyim
+nathan jewish goyim
 
 GOSAH PAKE BRANCH MASTER
 G SENGAJA KEBIKIN TADI
