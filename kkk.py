@@ -9,6 +9,10 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder
 le = LabelEncoder()
 
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+
 #get location of current dir
 import os
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +28,7 @@ try:
     print("Merge berhasil\n")
     print(data.head())
 
-except Exception as e: #masa gagal si
+except Exception as e: #masa gagal si # wokwokwkowok
     print(f"Merge failed because {e}")
 
 data['nominal_klaim_yang_disetujui'] = data['nominal_klaim_yang_disetujui'].fillna(0)
@@ -55,8 +59,17 @@ data_bulanan = data.groupby('tahun_bulan').agg(
     claim_frequency = ('claim_id', 'count'),
     claim_severity = ('nominal_klaim_yang_disetujui', 'mean')
 ).reset_index()
+data_bulanan['tahun_bulan'] = data_bulanan['tahun_bulan'].astype(str)
 #if freq is 0
 data_bulanan['claim_severity'] = data_bulanan['claim_severity'].fillna(0)
+output_list = []
+
+for _, row in data_bulanan.iterrows():
+    bulan = row['tahun_bulan']
+
+    output_list.append([f"{bulan}_Claim_Frequency", row['claim_frequency']])
+    output_list.append([f"{bulan}_Claim_Severity", row['claim_severity']])
+    output_list.append([f"{bulan}_Total_Claim", row['total_claim']])
 
 doLoop = True
 while doLoop:
@@ -67,8 +80,10 @@ while doLoop:
     print("3. Jumlah Nasabah Berdasarkan Plan Code")
     print("4. Heatmap Korelasi Faktor Nasabah vs Klaim")
     print("5. Distribusi biaya klaim asuransi kesehatan")
+    print("6. Prediksi Nilai Klaim (Severity)")
     print("0. Keluar")
-    option = input("Enter your option (0/1/2/3/4/5): ").strip()
+    option = input("Enter your option (1/2/3/4/5/6/0): ").strip()
+
 
     if option == '1':
         # boxplot gender dgn severity
@@ -154,6 +169,90 @@ while doLoop:
         plt.legend()
         plt.grid(axis='y', alpha=0.3)
         plt.show()
+    
+    elif option == '6':
+        
+        kolom_teks = [
+            'gender', 'domisili', 'plan_code',
+            'kategori_penyakit', 'reimburse/cashless',
+            'inpatient/outpatient'
+        ]
+
+        #mastiin ada ya boy datanya
+        if 'kategori_penyakit' not in data.columns:
+            data['kategori_penyakit'] = data['icd_diagnosis'].astype(str).str[0]
+            data['kategori_penyakit'] = data['kategori_penyakit'].replace('n', 'Sehat')
+
+        for col in kolom_teks:
+            if col in data.columns:
+                data[col] = data[col].fillna('Unknown')
+                data[col + '_encoded'] = le.fit_transform(data[col])
+        #Mastiin data valid
+        ml_data = data[data['nominal_klaim_yang_disetujui'] > 0].copy()
+        #fitur!!!
+        features = ['usia',
+                    'lama_inap',
+                    'usia_polis_hari',
+                    'gender_encoded',
+                    'plan_code_encoded',
+                    'domisili_encoded']
+
+        #no NANS bro
+        ml_data = ml_data.dropna(subset=features)
+
+        X = ml_data[features]
+        y = ml_data['log_nominal_klaim'] 
+
+        X_train, X_test, y_train, y_test = train_test_split(X,y, test_size = 0.4 , random_state= 42)      
+
+        print("KITA TRAINNN")
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        model.fit(X_train, y_train)  
+
+        #Evaluasi
+        y_pred = model.predict(X_test)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+        r2 = r2_score(y_test, y_pred)
+        
+        # Buat dataframe dari hasil agregasi
+        output_df = pd.DataFrame(output_list, columns=['id', ' value'])
+
+        sample = pd.read_csv(os.path.join(base_dir, "sample_submission.csv"))
+
+        output_df = output_df.set_index('id')
+
+        final_submission = sample.copy()
+
+        final_submission = final_submission.merge(
+            output_df,
+            on='id',
+            how='left'
+        )
+
+        final_submission.to_csv("submission.csv", index=False)
+
+        print("Submission berhasil dibuat dengan", len(final_submission), "baris")
+        
+        print("\n----------Evaluasi Model--------")
+        print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
+        print(f"R-squared (R2 Score): {r2:.4f}")
+        print("--------------------------------\n")
+
+        #Visualisasi
+        plt.figure(figsize=(10, 5))
+        sns.barplot(x=model.feature_importances_, y=features, palette='viridis')
+        plt.title('Pentingnya Fitur dalam Memprediksi Nilai Klaim (Feature Importance)')
+        plt.xlabel('Tingkat Kepentingan')
+        plt.ylabel('Fitur')
+        plt.tight_layout()
+        plt.show()
+
+        output_df = pd.DataFrame(output_list, columns=['id', 'value'])
+
+        output_path = os.path.join(base_dir, "monthly_claim_summary.csv")
+        output_df.to_csv(output_path, index=False, header=True)
+
+        print("File berhasil dibuat:", output_path)
 
     elif option == '0':
         print("Keluar dari menu.")
